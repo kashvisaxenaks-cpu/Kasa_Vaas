@@ -13,6 +13,23 @@
     const SUPABASE_URL = "https://bdqdiophfnofwygsubtn.supabase.co";
     const SUPABASE_KEY = "sb_publishable_SDQ4Z8TF1BSy_vIWUaMWKA__vItx7LH";
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // Keep the website's login state in sync after Google redirects and OTP sign-in.
+    supabaseClient.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        const role = session.user.user_metadata?.role || 'client';
+        localStorage.setItem('kasa_user_logged_in', 'true');
+        localStorage.setItem('kasa_role', role);
+
+        if (event === 'SIGNED_IN') {
+          closeAuth();
+          showToast('✦ Welcome to Kasa Vaas!');
+        }
+      } else if (event === 'SIGNED_OUT') {
+        localStorage.removeItem('kasa_user_logged_in');
+        localStorage.removeItem('kasa_role');
+      }
+    });
   </script>
 
   <style>
@@ -2602,8 +2619,82 @@
       }
     }
 
-    function socialAuth(provider) {
-      showToast(`Connecting with ${provider}…`);
+    async function socialAuth(provider) {
+      const role = document.getElementById('role-designer')?.classList.contains('active') ? 'designer' : 'client';
+
+      if (provider === 'Google') {
+        showToast('Redirecting to Google…');
+
+        const { error } = await supabaseClient.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: 'https://kashvisaxenaks-cpu.github.io/Kasa_Vaas/',
+            data: {
+              role
+            }
+          }
+        });
+
+        if (error) {
+          console.error('Kasa Vaas Google auth error:', error);
+          showToast(`⚠️ ${error.message || 'Google sign-in could not start.'}`);
+        }
+        return;
+      }
+
+      if (provider === 'Phone') {
+        const phone = window.prompt('Enter your phone number with country code (example: +919876543210):');
+        if (!phone) return;
+
+        const normalizedPhone = phone.replace(/[\\s()-]/g, '');
+        if (!/^\\+[1-9]\\d{7,14}$/.test(normalizedPhone)) {
+          showToast('⚠️ Please enter a valid phone number with country code, e.g. +919876543210.');
+          return;
+        }
+
+        showToast('Sending your OTP…');
+
+        const { error } = await supabaseClient.auth.signInWithOtp({
+          phone: normalizedPhone,
+          options: {
+            data: { role }
+          }
+        });
+
+        if (error) {
+          console.error('Kasa Vaas phone OTP error:', error);
+          showToast(`⚠️ ${error.message || 'Could not send OTP.'}`);
+          return;
+        }
+
+        const token = window.prompt(`OTP sent to ${normalizedPhone}. Enter the 6-digit code:`);
+        if (!token) return;
+
+        const { data, error: verifyError } = await supabaseClient.auth.verifyOtp({
+          phone: normalizedPhone,
+          token: token.trim(),
+          type: 'sms'
+        });
+
+        if (verifyError) {
+          console.error('Kasa Vaas OTP verification error:', verifyError);
+          showToast(`⚠️ ${verifyError.message || 'Invalid or expired OTP.'}`);
+          return;
+        }
+
+        const loggedInRole = data.user?.user_metadata?.role || role;
+        localStorage.setItem('kasa_user_logged_in', 'true');
+        localStorage.setItem('kasa_role', loggedInRole);
+
+        closeAuth();
+        showToast('✦ Welcome to Kasa Vaas!');
+
+        if (intendedCategory) {
+          loadMoodboard(intendedCategory);
+          showView('view-moodboard');
+          intendedCategory = null;
+        }
+      }
     }
 
     // ── TOAST ────────────────────────────────
