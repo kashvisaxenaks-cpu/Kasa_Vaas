@@ -8,6 +8,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Inter:wght@300;400;500;600&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const SUPABASE_URL = "https://bdqdiophfnofwygsubtn.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_SDQ4Z8TF1BSy_vIWUaMWKA__vItx7LH";
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  </script>
 
   <style>
     /* ─── RESET & BASE ─────────────────────────────── */
@@ -2452,58 +2458,124 @@
     const ADMIN_EMAIL = 'admin@kasavaas.com';
     const ADMIN_PASS  = 'admin123';
 
-    function handleLogin(e) {
+    async function handleLogin(e) {
       e.preventDefault();
+
       const email = document.getElementById('login-email').value.trim();
-      const pass  = document.getElementById('login-password').value;
-      const btn   = document.getElementById('btn-login-submit');
+      const pass = document.getElementById('login-password').value;
+      const btn = document.getElementById('btn-login-submit');
+
       btn.textContent = 'Signing in…';
       btn.disabled = true;
 
-      setTimeout(() => {
-        btn.textContent = 'Sign In to Kasa Vaas';
-        btn.disabled = false;
-        closeAuth();
-
-        // Developer login
+      try {
+        // Keep the existing developer dashboard login separate for now.
         if (email === ADMIN_EMAIL && pass === ADMIN_PASS) {
           localStorage.setItem('kasa_user_logged_in', 'true');
           localStorage.setItem('kasa_role', 'admin');
+          closeAuth();
           showToast('🛠  Welcome, Developer!');
           loadAdminDashboard();
           showView('view-admin');
           return;
         }
 
-        // Regular user login
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
+          email,
+          password: pass
+        });
+
+        if (error) throw error;
+
         localStorage.setItem('kasa_user_logged_in', 'true');
-        localStorage.setItem('kasa_role', 'user');
+        localStorage.setItem('kasa_role', data.user?.user_metadata?.role || 'client');
+
+        closeAuth();
         showToast('✦  Welcome back to Kasa Vaas!');
+
         if (intendedCategory) {
           loadMoodboard(intendedCategory);
           showView('view-moodboard');
           intendedCategory = null;
         }
-      }, 1000);
+      } catch (error) {
+        console.error('Kasa Vaas login error:', error);
+        showToast(`⚠️ ${error.message || 'Could not sign in.'}`);
+      } finally {
+        btn.textContent = 'Sign In to Kasa Vaas';
+        btn.disabled = false;
+      }
     }
 
-    function handleSignup(e) {
+    async function handleSignup(e) {
       e.preventDefault();
+
       const btn = document.getElementById('btn-signup-submit');
+      const firstName = document.getElementById('signup-fname').value.trim();
+      const lastName = document.getElementById('signup-lname').value.trim();
+      const email = document.getElementById('signup-email').value.trim();
+      const phone = document.getElementById('signup-phone').value.trim();
+      const city = document.getElementById('signup-city').value;
+      const password = document.getElementById('signup-password').value;
+      const specialty = document.getElementById('signup-specialty').value;
+      const role = document.getElementById('role-designer').classList.contains('active') ? 'designer' : 'client';
+
+      if (password.length < 8) {
+        showToast('⚠️ Password must be at least 8 characters.');
+        return;
+      }
+
+      if (role === 'designer' && !specialty) {
+        showToast('⚠️ Please select your speciality.');
+        return;
+      }
+
       btn.textContent = 'Creating account…';
       btn.disabled = true;
-      setTimeout(() => {
+
+      try {
+        const { data, error } = await supabaseClient.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              role,
+              first_name: firstName,
+              last_name: lastName,
+              phone,
+              city,
+              specialty: role === 'designer' ? specialty : null
+            }
+          }
+        });
+
+        if (error) throw error;
+
+        // Supabase may require email confirmation. Only treat the user as
+        // logged in when Supabase actually returned a session.
+        if (data.session) {
+          localStorage.setItem('kasa_user_logged_in', 'true');
+          localStorage.setItem('kasa_role', role);
+          closeAuth();
+          showToast('🏠 Welcome to Kasa Vaas! Your account is ready.');
+
+          if (intendedCategory) {
+            loadMoodboard(intendedCategory);
+            showView('view-moodboard');
+            intendedCategory = null;
+          }
+        } else {
+          localStorage.removeItem('kasa_user_logged_in');
+          localStorage.removeItem('kasa_role');
+          showToast('✉️ Account created! Check your email to confirm your account.');
+        }
+      } catch (error) {
+        console.error('Kasa Vaas signup error:', error);
+        showToast(`⚠️ ${error.message || 'Could not create your account.'}`);
+      } finally {
         btn.textContent = 'Create My Account';
         btn.disabled = false;
-        closeAuth();
-        localStorage.setItem('kasa_user_logged_in', 'true');
-        showToast('🏠  Welcome to Kasa Vaas! Your account is ready.');
-        if (intendedCategory) {
-          loadMoodboard(intendedCategory);
-          showView('view-moodboard');
-          intendedCategory = null;
-        }
-      }, 1000);
+      }
     }
 
     function socialAuth(provider) {
