@@ -2557,6 +2557,29 @@
         if (data.session) {
           localStorage.setItem('kasa_user_logged_in', 'true');
           localStorage.setItem('kasa_role', role);
+
+          // Send the Kasa Vaas welcome email through the secure Edge Function.
+          const { error: emailError } = await supabaseClient.functions.invoke('send-email', {
+            body: {
+              subject: 'Welcome to Kasa Vaas 🏠',
+              html: `
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:40px 25px;color:#2d2925;background:#f8f5ef;">
+                  <h1 style="font-size:32px;margin-bottom:8px;">Welcome to Kasa Vaas 🏠</h1>
+                  <p style="font-size:17px;">Hi ${firstName || 'there'},</p>
+                  <p style="font-size:16px;line-height:1.7;">Your Kasa Vaas account is ready.</p>
+                  <p style="font-size:16px;line-height:1.7;">Discover beautiful spaces, explore ideas, and connect with designers who understand your vision.</p>
+                  <p style="font-size:16px;line-height:1.7;">We're glad you're here.</p>
+                  <br>
+                  <p style="font-size:16px;line-height:1.6;">Warmly,<br><strong>Kasa Vaas</strong></p>
+                </div>
+              `
+            }
+          });
+
+          if (emailError) {
+            console.error('Kasa Vaas welcome email error:', emailError);
+          }
+
           closeAuth();
           showToast('🏠 Welcome to Kasa Vaas! Your account is ready.');
 
