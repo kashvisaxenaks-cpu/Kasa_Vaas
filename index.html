@@ -25,9 +25,15 @@
           closeAuth();
           showToast('✦ Welcome to Kasa Vaas!');
         }
+        if (typeof updateAccountButton === 'function') {
+          updateAccountButton();
+        }
       } else if (event === 'SIGNED_OUT') {
         localStorage.removeItem('kasa_user_logged_in');
         localStorage.removeItem('kasa_role');
+        if (typeof updateAccountButton === 'function') {
+          updateAccountButton();
+        }
       }
     });
   </script>
@@ -1694,6 +1700,170 @@
     .media-lib-btn.del { border-color: var(--terracotta); color: var(--terracotta); }
     .media-lib-btn.del:hover { background: var(--terracotta); color: #fff; }
     .media-empty { color: var(--text-muted); text-align: center; padding: 40px; font-size: 14px; }
+
+    /* ─── ACCOUNT / PROFILE ───────────────────────── */
+    .nav-account {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 16px;
+      border: 1px solid var(--glass-border);
+      background: rgba(201,169,110,0.05);
+      color: var(--cream) !important;
+      border-radius: 999px;
+      font-size: 11px !important;
+      letter-spacing: 1.5px !important;
+      cursor: pointer;
+    }
+    .nav-account.show { display: inline-flex; }
+    .nav-account::after { display: none !important; }
+    .nav-account-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--gold);
+      color: var(--dark);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .nav-account:hover {
+      border-color: var(--gold);
+      background: rgba(201,169,110,0.12);
+      color: var(--gold) !important;
+    }
+
+    #profile-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: none;
+      align-items: flex-start;
+      justify-content: center;
+      overflow-y: auto;
+      padding: 40px 20px;
+      background: rgba(14,13,11,0.86);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    #profile-overlay.show { display: flex; }
+    .profile-card {
+      position: relative;
+      width: min(680px, 100%);
+      margin: auto;
+      background: var(--charcoal);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      box-shadow: 0 30px 100px rgba(0,0,0,0.55);
+      overflow: hidden;
+    }
+    .profile-header {
+      padding: 32px 36px 24px;
+      border-bottom: 1px solid var(--glass-border);
+    }
+    .profile-kicker {
+      font-size: 9px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 8px;
+    }
+    .profile-title {
+      font-family: 'DM Serif Display', serif;
+      font-size: 38px;
+      line-height: 1;
+      color: var(--cream);
+    }
+    .profile-subtitle {
+      margin-top: 10px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .profile-body {
+      padding: 30px 36px 36px;
+    }
+    .profile-avatar {
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      background: var(--gold);
+      color: var(--dark);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'DM Serif Display', serif;
+      font-size: 28px;
+      margin-bottom: 24px;
+    }
+    .profile-email-note {
+      margin-top: -4px;
+      margin-bottom: 22px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .profile-role {
+      display: inline-flex;
+      padding: 5px 10px;
+      border: 1px solid var(--glass-border);
+      border-radius: 999px;
+      color: var(--gold);
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 24px;
+    }
+    .profile-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .profile-save-btn {
+      flex: 1;
+      padding: 14px 18px;
+      border: none;
+      border-radius: 4px;
+      background: var(--gold);
+      color: var(--dark);
+      font-family: 'Inter', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .profile-save-btn:hover { background: var(--gold-light); }
+    .profile-signout-btn {
+      padding: 14px 18px;
+      border: 1px solid rgba(193,113,79,0.55);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--terracotta);
+      font-family: 'Inter', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .profile-signout-btn:hover {
+      background: rgba(193,113,79,0.1);
+      border-color: var(--terracotta);
+    }
+    @media (max-width: 700px) {
+      .navbar { padding: 20px 20px; }
+      .nav-links { gap: 12px; }
+      .nav-links li:nth-child(1),
+      .nav-links li:nth-child(2),
+      .nav-links li:nth-child(3) { display: none; }
+      .profile-header, .profile-body { padding-left: 24px; padding-right: 24px; }
+      .profile-title { font-size: 32px; }
+      #profile-overlay { padding: 20px 12px; }
+      .profile-actions { flex-direction: column; }
+      .profile-signout-btn { width: 100%; }
+    }
+
   </style>
 </head>
 <body>
@@ -1736,7 +1906,12 @@
         <li><a href="#about">About</a></li>
         <li><a href="#how">How It Works</a></li>
         <li><a href="#categories">Explore</a></li>
-        <li><a href="#" onclick="openAuth('login'); return false;" class="nav-cta">Sign In</a></li>
+
+        <li><a href="#" onclick="openAuth('login'); return false;" class="nav-cta" id="nav-signin">Sign In</a></li>
+        <li><a href="#" onclick="openProfile(); return false;" class="nav-account" id="nav-account" aria-label="Open your account">
+          <span class="nav-account-icon" id="nav-account-icon">K</span>
+          <span id="nav-account-name">Account</span>
+        </a></li>
       </ul>
     </nav>
 
@@ -2310,8 +2485,273 @@
     </div>
   </div>
 
+
+  <!-- ══════════════════════════════════════ PROFILE MODAL ════ -->
+  <div id="profile-overlay" role="dialog" aria-modal="true" aria-label="Your Kasa Vaas account">
+    <div class="profile-card">
+      <button class="close-modal" onclick="closeProfile()" aria-label="Close profile">✕</button>
+
+      <div class="profile-header">
+        <div class="profile-kicker">Your Space</div>
+        <h2 class="profile-title">My Account</h2>
+        <p class="profile-subtitle">View and edit the information connected to your Kasa Vaas account.</p>
+      </div>
+
+      <div class="profile-body">
+        <div class="profile-avatar" id="profile-avatar">K</div>
+        <div class="profile-role" id="profile-role">Client</div>
+        <div class="profile-email-note" id="profile-email-note"></div>
+
+        <form id="profileForm" onsubmit="saveProfile(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="profile-fname">First Name</label>
+              <input type="text" id="profile-fname" required autocomplete="given-name" />
+            </div>
+            <div class="form-group">
+              <label for="profile-lname">Last Name</label>
+              <input type="text" id="profile-lname" autocomplete="family-name" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="profile-phone">Phone Number</label>
+            <input type="tel" id="profile-phone" autocomplete="tel" />
+          </div>
+
+          <div class="form-group">
+            <label for="profile-city">City</label>
+            <select id="profile-city">
+              <option value="">Select your city…</option>
+              <option>Mumbai</option>
+              <option>Delhi</option>
+              <option>Bengaluru</option>
+              <option>Hyderabad</option>
+              <option>Chennai</option>
+              <option>Pune</option>
+              <option>Ahmedabad</option>
+              <option>Kolkata</option>
+              <option>Jaipur</option>
+              <option>Other</option>
+            </select>
+          </div>
+
+          <div id="profile-client-fields">
+            <div class="form-group">
+              <label for="profile-budget">Budget</label>
+              <input type="text" id="profile-budget" placeholder="e.g. ₹10–20 lakh" />
+            </div>
+            <div class="form-group">
+              <label for="profile-style">Preferred Style</label>
+              <input type="text" id="profile-style" placeholder="e.g. Warm minimal, Japandi, Modern" />
+            </div>
+          </div>
+
+          <div id="profile-designer-fields" style="display:none;">
+            <div class="form-group">
+              <label for="profile-specialty">Speciality</label>
+              <select id="profile-specialty">
+                <option value="">Select your speciality…</option>
+                <option>Interior Design</option>
+                <option>Architecture</option>
+                <option>Landscape Design</option>
+                <option>Commercial Design</option>
+                <option>Hospitality Design</option>
+                <option>Kitchen & Bath Design</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="profile-experience">Experience</label>
+              <input type="text" id="profile-experience" placeholder="e.g. 5 years" />
+            </div>
+            <div class="form-group">
+              <label for="profile-bio">Bio</label>
+              <textarea id="profile-bio" placeholder="Tell clients a little about your work..."></textarea>
+            </div>
+            <div class="form-group">
+              <label for="profile-portfolio">Portfolio URL</label>
+              <input type="url" id="profile-portfolio" placeholder="https://..." />
+            </div>
+          </div>
+
+          <div class="profile-actions">
+            <button type="submit" class="profile-save-btn">Save Changes</button>
+            <button type="button" class="profile-signout-btn" onclick="logoutFromProfile()">Sign Out</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- ══════════════════════════════════════ SCRIPTS ════ -->
   <script>
+
+    // ── ACCOUNT / PROFILE ────────────────────
+    async function updateAccountButton() {
+      const accountBtn = document.getElementById('nav-account');
+      const signInBtn = document.getElementById('nav-signin');
+      if (!accountBtn || !signInBtn) return;
+
+      const { data: { user } } = await supabaseClient.auth.getUser();
+
+      if (user) {
+        accountBtn.classList.add('show');
+        signInBtn.parentElement.style.display = 'none';
+        const name = user.user_metadata?.first_name || user.email?.split('@')[0] || 'Account';
+        document.getElementById('nav-account-name').textContent = name;
+        document.getElementById('nav-account-icon').textContent = name.charAt(0).toUpperCase();
+      } else {
+        accountBtn.classList.remove('show');
+        signInBtn.parentElement.style.display = '';
+      }
+    }
+
+    async function openProfile() {
+      const { data: { user }, error } = await supabaseClient.auth.getUser();
+      if (error || !user) {
+        showToast('Please sign in to view your account.');
+        openAuth('login');
+        return;
+      }
+
+      const role = (user.user_metadata?.role || 'client').toLowerCase();
+      const table = role === 'designer' ? 'designers' : 'customers';
+
+      const { data: profile, error: profileError } = await supabaseClient
+        .from(table)
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError) {
+        console.error('Kasa Vaas profile load error:', profileError);
+        showToast('⚠️ Could not load your profile.');
+        return;
+      }
+
+      document.getElementById('profile-overlay').classList.add('show');
+      document.body.style.overflow = 'hidden';
+
+      const firstName = profile?.first_name || user.user_metadata?.first_name || '';
+      const lastName = profile?.last_name || user.user_metadata?.last_name || '';
+      const displayName = [firstName, lastName].filter(Boolean).join(' ') || 'Kasa Vaas member';
+
+      document.getElementById('profile-avatar').textContent = (firstName || displayName).charAt(0).toUpperCase();
+      document.getElementById('profile-role').textContent = role === 'designer' ? 'Designer' : 'Client';
+      document.getElementById('profile-email-note').textContent = user.email ? `Signed in as ${user.email}` : 'Phone account';
+
+      document.getElementById('profile-fname').value = firstName;
+      document.getElementById('profile-lname').value = lastName;
+      document.getElementById('profile-phone').value = profile?.phone || user.phone || '';
+      document.getElementById('profile-city').value = profile?.city || '';
+
+      const clientFields = document.getElementById('profile-client-fields');
+      const designerFields = document.getElementById('profile-designer-fields');
+
+      if (role === 'designer') {
+        clientFields.style.display = 'none';
+        designerFields.style.display = 'block';
+        document.getElementById('profile-specialty').value = profile?.specialty || '';
+        document.getElementById('profile-experience').value = profile?.experience || '';
+        document.getElementById('profile-bio').value = profile?.bio || '';
+        document.getElementById('profile-portfolio').value = profile?.portfolio_url || '';
+      } else {
+        clientFields.style.display = 'block';
+        designerFields.style.display = 'none';
+        document.getElementById('profile-budget').value = profile?.budget || '';
+        document.getElementById('profile-style').value = profile?.preferred_style || '';
+      }
+    }
+
+    function closeProfile() {
+      document.getElementById('profile-overlay').classList.remove('show');
+      if (!document.getElementById('auth-overlay').classList.contains('show')) {
+        document.body.style.overflow = '';
+      }
+    }
+
+    async function saveProfile(event) {
+      event.preventDefault();
+
+      const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+      if (userError || !user) {
+        showToast('Please sign in again.');
+        closeProfile();
+        openAuth('login');
+        return;
+      }
+
+      const role = (user.user_metadata?.role || 'client').toLowerCase();
+      const table = role === 'designer' ? 'designers' : 'customers';
+
+      const firstName = document.getElementById('profile-fname').value.trim();
+      const lastName = document.getElementById('profile-lname').value.trim();
+      const phone = document.getElementById('profile-phone').value.trim();
+      const city = document.getElementById('profile-city').value;
+
+      const values = {
+        first_name: firstName,
+        last_name: lastName || null,
+        phone: phone || null,
+        city: city || null
+      };
+
+      if (role === 'designer') {
+        values.specialty = document.getElementById('profile-specialty').value || null;
+        values.experience = document.getElementById('profile-experience').value.trim() || null;
+        values.bio = document.getElementById('profile-bio').value.trim() || null;
+        values.portfolio_url = document.getElementById('profile-portfolio').value.trim() || null;
+      } else {
+        values.budget = document.getElementById('profile-budget').value.trim() || null;
+        values.preferred_style = document.getElementById('profile-style').value.trim() || null;
+      }
+
+      const { error: updateError } = await supabaseClient
+        .from(table)
+        .update(values)
+        .eq('id', user.id);
+
+      if (updateError) {
+        console.error('Kasa Vaas profile update error:', updateError);
+        showToast(`⚠️ ${updateError.message || 'Could not save your changes.'}`);
+        return;
+      }
+
+      const { error: metadataError } = await supabaseClient.auth.updateUser({
+        data: {
+          first_name: firstName,
+          last_name: lastName || null,
+          phone: phone || null,
+          city: city || null
+        }
+      });
+
+      if (metadataError) {
+        console.warn('Kasa Vaas metadata update warning:', metadataError);
+      }
+
+      document.getElementById('nav-account-name').textContent = firstName || 'Account';
+      document.getElementById('nav-account-icon').textContent = (firstName || 'A').charAt(0).toUpperCase();
+
+      showToast('✦ Profile updated successfully!');
+      closeProfile();
+    }
+
+    async function logoutFromProfile() {
+      const { error } = await supabaseClient.auth.signOut();
+      if (error) {
+        showToast(`⚠️ ${error.message || 'Could not sign out.'}`);
+        return;
+      }
+      closeProfile();
+      localStorage.removeItem('kasa_user_logged_in');
+      localStorage.removeItem('kasa_role');
+      showToast('Signed out of Kasa Vaas.');
+    }
+
+    // Keep account button in sync after auth changes.
+    setTimeout(updateAccountButton, 0);
+
     // ── CURSOR GLOW ──────────────────────────
     const glow = document.getElementById('cursorGlow');
     document.addEventListener('mousemove', e => {
