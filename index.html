@@ -4128,6 +4128,11 @@
       return localStorage.getItem('kasa_role') === 'admin';
     }
 
+    async function hasAdminAccess() {
+      const { user, role } = await getCurrentAppRole();
+      return Boolean(user && role === 'admin');
+    }
+
     async function migrateLegacyAdminPostsToDatabase() {
       const { user, role } = await getCurrentAppRole();
       if (!user || role !== 'admin') return;
@@ -4165,7 +4170,7 @@
     }
 
     async function loadAdminDashboard() {
-      if (!isAdmin()) { showToast('⛔ Access denied.'); showView('view-landing'); return; }
+      if (!(await hasAdminAccess())) { showToast('⛔ Access denied.'); showView('view-landing'); return; }
       await migrateLegacyAdminPostsToDatabase();
       const posts = getInspirations();
       const dbPosts = await getDatabasePosts();
@@ -4199,11 +4204,13 @@
       });
     }
 
-    function openAdminModal(id = null) {
+    async function openAdminModal(id = null) {
+      const { user, role } = await getCurrentAppRole();
+      if (!user || role !== 'admin') { showToast('⛔ Admin access required.'); return; }
+
       postEditorMode = 'admin';
       designerSelectedFile = null;
       designerExistingImagePath = null;
-      if (!isAdmin()) { showToast('⛔ Access denied.'); return; }
       document.getElementById('admin-modal').classList.remove('hidden');
       document.getElementById('adminForm').reset();
       if (id) {
@@ -4233,17 +4240,23 @@
     async function savePost(e) {
       e.preventDefault();
 
-      if (postEditorMode === 'designer') {
+      const { user, role } = await getCurrentAppRole();
+      if (!user) {
+        showToast('⛔ Please sign in first.');
+        return;
+      }
+
+      if (role === 'designer' || postEditorMode === 'designer') {
         await saveDesignerPost();
         return;
       }
 
-      if (isAdmin()) {
+      if (role === 'admin' || postEditorMode === 'admin' || postEditorMode === 'admin-db') {
         await saveAdminDatabasePost();
         return;
       }
 
-      showToast('⛔ Admin access required.');
+      showToast('⛔ Your account does not have permission to publish posts.');
     }
 
     function deletePost(id) {
