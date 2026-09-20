@@ -3663,6 +3663,9 @@
     }
 
     function openAdminModal(id = null) {
+      postEditorMode = 'admin';
+      designerSelectedFile = null;
+      designerExistingImagePath = null;
       if (!isAdmin()) { showToast('⛔ Access denied.'); return; }
       document.getElementById('admin-modal').classList.remove('hidden');
       document.getElementById('adminForm').reset();
@@ -3685,10 +3688,19 @@
 
     function closeAdminModal() {
       document.getElementById('admin-modal').classList.add('hidden');
+      designerSelectedFile = null;
+      designerExistingImagePath = null;
+      postEditorMode = 'admin';
     }
 
-    function savePost(e) {
+    async function savePost(e) {
       e.preventDefault();
+
+      if (postEditorMode === 'designer') {
+        await saveDesignerPost();
+        return;
+      }
+
       if (!isAdmin()) { showToast('⛔ Access denied.'); return; }
       const posts     = getInspirations();
       const idVal     = document.getElementById('admin-id').value;
