@@ -2962,13 +2962,17 @@
     let intendedCategory = null;
     let pendingPostAuthDestination = null;
 
-    function getSavedMoodboardIds() {
-      try { return JSON.parse(localStorage.getItem('kasa_saved_moodboards') || '[]'); }
+    function getSavedMoodboardStorageKey(userId = window.kasaCurrentUserId) {
+      return userId ? `kasa_saved_moodboards_${userId}` : 'kasa_saved_moodboards';
+    }
+
+    function getSavedMoodboardIds(userId = window.kasaCurrentUserId) {
+      try { return JSON.parse(localStorage.getItem(getSavedMoodboardStorageKey(userId)) || '[]'); }
       catch { return []; }
     }
 
-    function saveSavedMoodboardIds(ids) {
-      localStorage.setItem('kasa_saved_moodboards', JSON.stringify(ids));
+    function saveSavedMoodboardIds(ids, userId = window.kasaCurrentUserId) {
+      localStorage.setItem(getSavedMoodboardStorageKey(userId), JSON.stringify(ids));
     }
 
     async function openSavedMoodboards() {
@@ -3564,6 +3568,7 @@
 
     async function getCurrentAuthUser() {
       const { data: { user } } = await supabaseClient.auth.getUser();
+      window.kasaCurrentUserId = user?.id || null;
       return user || null;
     }
 
