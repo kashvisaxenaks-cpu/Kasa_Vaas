@@ -3655,10 +3655,41 @@
     }
 
     async function getAllInspirations() {
-      // Public inspiration feed comes only from Supabase.
-      // DEFAULT_INSPIRATIONS is kept in the source for reference, but sample
-      // posts must never reappear after an admin deletes them.
-      return await getDatabasePosts();
+      // Load live database posts first.
+      const dbPosts = await getDatabasePosts();
+
+      // Keep previously published custom posts that were stored by the older
+      // localStorage-based publisher. Never restore the built-in sample posts.
+      let legacyPosts = [];
+      try {
+        const stored = localStorage.getItem('kasa_posts');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const defaultTitles = new Set(DEFAULT_INSPIRATIONS.map(post => post.title));
+          legacyPosts = (Array.isArray(parsed) ? parsed : [])
+            .filter(post => post && !defaultTitles.has(post.title))
+            .map(post => ({
+              id: post.id,
+              author_id: post.author_id || null,
+              category: post.category,
+              title: post.title,
+              img: post.img,
+              image_path: post.image_path || null,
+              media_type: post.media_type || (post.img?.startsWith('data:video') ? 'video' : 'image'),
+              desc: post.desc || post.description || '',
+              materials: Array.isArray(post.materials) ? post.materials : [],
+              palette: Array.isArray(post.palette) ? post.palette : []
+            }));
+        }
+      } catch (error) {
+        console.warn('Kasa Vaas legacy inspiration load warning:', error);
+      }
+
+      // A post already migrated to Supabase should appear only once.
+      const dbTitles = new Set(dbPosts.map(post => String(post.title)));
+      const uniqueLegacyPosts = legacyPosts.filter(post => !dbTitles.has(String(post.title)));
+
+      return [...dbPosts, ...uniqueLegacyPosts];
     }
 
     async function getCurrentAuthUser() {
