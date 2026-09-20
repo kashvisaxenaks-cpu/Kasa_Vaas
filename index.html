@@ -29,6 +29,9 @@
         } else if (event === 'SIGNED_IN') {
           closeAuth();
           showToast('✦ Welcome to Kasa Vaas!');
+          if (typeof handlePostAuthDestination === 'function' && (pendingPostAuthDestination || intendedCategory)) {
+            handlePostAuthDestination();
+          }
         }
         if (typeof updateAccountButton === 'function') {
           updateAccountButton();
@@ -1893,7 +1896,16 @@
     }
     .designer-post-action.delete { color: #e7a6a0; border-color: rgba(200,100,90,0.35); }
     .designer-post-action:hover { background: rgba(201,169,110,0.16); }
-  </style>
+  
+    .insp-title-row { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+    .save-moodboard-btn { flex-shrink:0; padding:9px 14px; border:1px solid var(--gold); border-radius:2px; background:rgba(201,169,110,0.08); color:var(--gold); font-family:'Inter',sans-serif; font-size:10px; font-weight:600; letter-spacing:1.4px; text-transform:uppercase; cursor:pointer; transition:all .3s ease; }
+    .save-moodboard-btn:hover, .save-moodboard-btn.saved { background:var(--gold); color:var(--dark); }
+    .saved-empty { grid-column:1/-1; text-align:center; padding:90px 30px; border:1px solid var(--glass-border); background:rgba(201,169,110,.04); }
+    .saved-empty h3 { font-family:'DM Serif Display',serif; font-size:38px; color:var(--cream); margin-bottom:12px; }
+    .saved-empty p { color:var(--text-muted); font-size:14px; line-height:1.7; margin-bottom:28px; }
+    .saved-empty button { display:inline-flex; align-items:center; gap:10px; padding:13px 24px; border:1px solid var(--gold); background:var(--gold); color:var(--dark); font-family:'Inter',sans-serif; font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; cursor:pointer; border-radius:2px; }
+
+</style>
 </head>
 <body>
 
@@ -2148,13 +2160,13 @@
           <a href="#">New Arrivals</a>
           <a href="#">Featured Designs</a>
           <a href="#">Collections</a>
-          <a href="#">Moodboards</a>
+          <a href="#" onclick="openSavedMoodboards(); return false;">Moodboards</a>
         </div>
       </div>
       <div class="footer-col">
         <h5>For Designers</h5>
         <div class="footer-links">
-          <a href="#">Join as Expert</a>
+          <a href="#" onclick="openAuth('login'); return false;">Join as Expert</a>
           <a href="#">Portfolio Upload</a>
           <a href="#">Verification</a>
         </div>
@@ -2193,15 +2205,28 @@
     </div>
   </div>
 
+  <!-- ══════════════════════════════════════ SAVED MOODBOARDS VIEW ════ -->
+  <div id="view-saved-moodboards" class="view hidden">
+    <div class="mb-header">
+      <button class="btn-back" onclick="showView('view-landing')">← Back to Home</button>
+      <h2 class="mb-title">My Saved Moodboards</h2>
+      <div></div>
+    </div>
+    <div class="mb-grid" id="saved-moodboards-grid"></div>
+  </div>
+
   <!-- ══════════════════════════════════════ INSPIRATION MODAL ════ -->
   <div id="inspiration-modal" role="dialog" aria-modal="true" class="hidden">
     <div class="insp-modal-content">
       <button class="insp-modal-close" onclick="closeInspiration()">✕</button>
       <img src="bedroom1.jpg" alt="Inspiration" class="insp-hero" id="insp-img" />
       <div class="insp-body">
-        <div>
-          <h2 class="insp-title" id="insp-title">Warm Scandinavian Bedroom</h2>
-          <p class="insp-desc" id="insp-desc">A beautiful design mixing oak wood and muted tones.</p>
+        <div class="insp-title-row">
+          <div>
+            <h2 class="insp-title" id="insp-title">Warm Scandinavian Bedroom</h2>
+            <p class="insp-desc" id="insp-desc">A beautiful design mixing oak wood and muted tones.</p>
+          </div>
+          <button type="button" class="save-moodboard-btn" id="save-moodboard-btn" onclick="toggleSavedMoodboard()" aria-label="Save this moodboard">♡ Save</button>
         </div>
         
         <div>
@@ -2935,6 +2960,121 @@
     }
 
     let intendedCategory = null;
+    let pendingPostAuthDestination = null;
+
+    function getSavedMoodboardIds() {
+      try { return JSON.parse(localStorage.getItem('kasa_saved_moodboards') || '[]'); }
+      catch { return []; }
+    }
+
+    function saveSavedMoodboardIds(ids) {
+      localStorage.setItem('kasa_saved_moodboards', JSON.stringify(ids));
+    }
+
+    async function openSavedMoodboards() {
+      const user = await getCurrentAuthUser();
+      if (!user) {
+        pendingPostAuthDestination = 'saved-moodboards';
+        showToast('✦ Create your account first to see your saved moodboards.');
+        openAuth('signup');
+        return;
+      }
+      await renderSavedMoodboards();
+      showView('view-saved-moodboards');
+    }
+
+    async function renderSavedMoodboards() {
+      const grid = document.getElementById('saved-moodboards-grid');
+      if (!grid) return;
+      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-muted);">Loading your saved moodboards…</div>';
+
+      const savedIds = getSavedMoodboardIds().map(String);
+      const all = await getAllInspirations();
+      const saved = all.filter(item => savedIds.includes(String(item.id)));
+
+      if (saved.length === 0) {
+        grid.innerHTML = '<div class="saved-empty"><h3>Your moodboard shelf is waiting.</h3><p>You haven’t saved any moodboards yet. Let’s find a few spaces that feel like you.</p><button type="button" onclick="exploreFromSavedMoodboards()">Let’s explore! →</button></div>';
+        return;
+      }
+
+      grid.innerHTML = saved.map(item => {
+        const media = item.media_type === 'video'
+          ? '<video src="' + escapeHtml(item.img) + '" class="mb-item-img" muted playsinline></video>'
+          : '<img src="' + escapeHtml(item.img) + '" alt="' + escapeHtml(item.title) + '" class="mb-item-img" loading="lazy" />';
+        return '<div class="mb-item" onclick="openInspiration(\'' + String(item.id).replace(/'/g, "\\'") + '\')">' +
+          media + '<div class="mb-item-title">' + escapeHtml(item.title) + '</div></div>';
+      }).join('');
+    }
+
+    function exploreFromSavedMoodboards() {
+      showView('view-landing');
+      setTimeout(() => document.getElementById('categories')?.scrollIntoView({ behavior:'smooth', block:'start' }), 550);
+    }
+
+    async function toggleSavedMoodboard() {
+      const user = await getCurrentAuthUser();
+      if (!user) {
+        pendingPostAuthDestination = 'save-current-moodboard';
+        showToast('✦ Sign in to save this moodboard.');
+        openAuth('signup');
+        return;
+      }
+
+      const currentId = window.currentInspirationId;
+      if (currentId === undefined || currentId === null) return;
+
+      const ids = getSavedMoodboardIds();
+      const index = ids.map(String).indexOf(String(currentId));
+      if (index >= 0) {
+        ids.splice(index, 1);
+        showToast('Moodboard removed from your saves.');
+      } else {
+        ids.push(currentId);
+        showToast('✦ Moodboard saved to your collection.');
+      }
+      saveSavedMoodboardIds(ids);
+      updateSaveMoodboardButton();
+    }
+
+    function updateSaveMoodboardButton() {
+      const btn = document.getElementById('save-moodboard-btn');
+      if (!btn) return;
+      const currentId = window.currentInspirationId;
+      const saved = currentId !== undefined && currentId !== null &&
+        getSavedMoodboardIds().map(String).includes(String(currentId));
+      btn.classList.toggle('saved', saved);
+      btn.textContent = saved ? '♥ Saved' : '♡ Save';
+    }
+
+    async function handlePostAuthDestination() {
+      const destination = pendingPostAuthDestination;
+      pendingPostAuthDestination = null;
+
+      if (destination === 'saved-moodboards') {
+        await renderSavedMoodboards();
+        showView('view-saved-moodboards');
+        return;
+      }
+
+      if (destination === 'save-current-moodboard') {
+        if (window.currentInspirationId !== undefined && window.currentInspirationId !== null) {
+          const ids = getSavedMoodboardIds();
+          if (!ids.map(String).includes(String(window.currentInspirationId))) ids.push(window.currentInspirationId);
+          saveSavedMoodboardIds(ids);
+          updateSaveMoodboardButton();
+          showToast('✦ Moodboard saved to your collection.');
+        }
+        return;
+      }
+
+      if (intendedCategory) {
+        loadMoodboard(intendedCategory);
+        showView('view-moodboard');
+        intendedCategory = null;
+      }
+    }
+
+
 
     // ── SPA ROUTING ──────────────────────────
     function showView(viewId) {
@@ -3097,11 +3237,7 @@
 
         showToast('✦  Welcome back to Kasa Vaas!');
 
-        if (intendedCategory) {
-          loadMoodboard(intendedCategory);
-          showView('view-moodboard');
-          intendedCategory = null;
-        }
+        await handlePostAuthDestination();
       } catch (error) {
         console.error('Kasa Vaas login error:', error);
         showToast(`⚠️ ${error.message || 'Could not sign in.'}`);
@@ -3191,11 +3327,7 @@
           closeAuth();
           showToast('🏠 Welcome to Kasa Vaas! Your account is ready.');
 
-          if (intendedCategory) {
-            loadMoodboard(intendedCategory);
-            showView('view-moodboard');
-            intendedCategory = null;
-          }
+          await handlePostAuthDestination();
         } else {
           localStorage.removeItem('kasa_user_logged_in');
           localStorage.removeItem('kasa_role');
@@ -3280,11 +3412,7 @@
         closeAuth();
         showToast('✦ Welcome to Kasa Vaas!');
 
-        if (intendedCategory) {
-          loadMoodboard(intendedCategory);
-          showView('view-moodboard');
-          intendedCategory = null;
-        }
+        await handlePostAuthDestination();
       }
     }
 
@@ -3515,6 +3643,7 @@
       const item = all.find(i => String(i.id) === String(id)) || all[0];
       if (!item) return;
 
+      window.currentInspirationId = item.id;
       document.getElementById('insp-img').src = item.img;
       document.getElementById('insp-title').textContent = item.title;
       document.getElementById('insp-desc').textContent = item.desc;
@@ -3549,6 +3678,7 @@
         document.body.style.overflow = 'hidden';
       }
       modal.querySelector('.insp-modal-content').scrollTop = 0;
+      updateSaveMoodboardButton();
     }
 
     function closeInspiration() {
