@@ -4044,39 +4044,66 @@
         const raw = document.getElementById('admin-palette').value.trim();
         if (raw) palette = JSON.parse(raw);
       } catch { showToast('⚠️ Palette must be valid JSON.'); return; }
-      if (!id || !title || !description) { showToast('⚠️ Please fill in the title and description.'); return; }
+
+      if (!title || !description) {
+        showToast('⚠️ Please fill in the title and description.');
+        return;
+      }
 
       let imageUrl = document.getElementById('admin-img').value.trim();
-      let imagePath = designerExistingImagePath;
+      let imagePath = designerExistingImagePath || null;
       let mediaType = 'image';
 
       if (designerSelectedFile) {
-        if (!designerSelectedFile.type.startsWith('image/')) { showToast('⚠️ Please choose an image for your post.'); return; }
+        if (!designerSelectedFile.type.startsWith('image/')) {
+          showToast('⚠️ Please choose an image for your post.');
+          return;
+        }
         const extension = (designerSelectedFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
         imagePath = `${user.id}/admin-${crypto.randomUUID()}.${extension}`;
         const { error: uploadError } = await supabaseClient.storage.from('designer-posts').upload(imagePath, designerSelectedFile, {
           cacheControl: '3600', upsert: false, contentType: designerSelectedFile.type
         });
-        if (uploadError) { showToast(`⚠️ ${uploadError.message || 'Could not upload image.'}`); return; }
+        if (uploadError) {
+          showToast(`⚠️ ${uploadError.message || 'Could not upload image.'}`);
+          return;
+        }
         const { data: publicUrlData } = supabaseClient.storage.from('designer-posts').getPublicUrl(imagePath);
         imageUrl = publicUrlData.publicUrl;
       }
 
-      const { error } = await supabaseClient.from('posts').update({
-        category, title, img: imageUrl, image_path: imagePath, media_type: mediaType, description, materials, palette
-      }).eq('id', id);
+      if (!imageUrl) {
+        showToast('⚠️ Please choose an image.');
+        return;
+      }
+
+      const values = {
+        category, title, img: imageUrl, image_path: imagePath, media_type: mediaType,
+        description, materials, palette
+      };
+
+      let error = null;
+      if (id) {
+        const result = await supabaseClient.from('posts').update(values).eq('id', id);
+        error = result.error;
+      } else {
+        const result = await supabaseClient.from('posts').insert({ ...values, author_id: user.id });
+        error = result.error;
+      }
 
       if (error) {
+        console.error('Kasa Vaas admin post save error:', error);
         if (designerSelectedFile && imagePath) await supabaseClient.storage.from('designer-posts').remove([imagePath]);
-        showToast(`⚠️ ${error.message || 'Could not update the designer post.'}`);
+        showToast(`⚠️ ${error.message || 'Could not save the post.'}`);
         return;
       }
 
       if (designerSelectedFile && designerExistingImagePath && designerExistingImagePath !== imagePath) {
         await supabaseClient.storage.from('designer-posts').remove([designerExistingImagePath]);
       }
+
       closeAdminModal();
-      showToast('✦ Designer post updated.');
+      showToast(id ? '✦ Post updated!' : '✦ Post published!');
       if (currentMoodboardCategory) await loadMoodboard(currentMoodboardCategory);
       await loadAdminDashboard();
     }
@@ -4101,8 +4128,45 @@
       return localStorage.getItem('kasa_role') === 'admin';
     }
 
+    async function migrateLegacyAdminPostsToDatabase() {
+      const { user, role } = await getCurrentAppRole();
+      if (!user || role !== 'admin') return;
+
+      let legacyPosts = [];
+      try { legacyPosts = getInspirations(); } catch { return; }
+
+      const defaultTitles = new Set(DEFAULT_INSPIRATIONS.map(post => post.title));
+      const customPosts = legacyPosts.filter(post => !defaultTitles.has(post.title));
+
+      for (const post of customPosts) {
+        const { data: existing } = await supabaseClient
+          .from('posts')
+          .select('id')
+          .eq('author_id', user.id)
+          .eq('title', post.title)
+          .limit(1);
+
+        if (existing?.length) continue;
+
+        const { error } = await supabaseClient.from('posts').insert({
+          author_id: user.id,
+          category: post.category,
+          title: post.title,
+          img: post.img,
+          image_path: null,
+          media_type: post.img?.startsWith('data:video') ? 'video' : 'image',
+          description: post.desc || '',
+          materials: Array.isArray(post.materials) ? post.materials : [],
+          palette: Array.isArray(post.palette) ? post.palette : []
+        });
+
+        if (error) console.error('Kasa Vaas legacy admin post migration error:', error);
+      }
+    }
+
     async function loadAdminDashboard() {
       if (!isAdmin()) { showToast('⛔ Access denied.'); showView('view-landing'); return; }
+      await migrateLegacyAdminPostsToDatabase();
       const posts = getInspirations();
       const dbPosts = await getDatabasePosts();
       const tbody = document.getElementById('admin-tbody');
@@ -4174,39 +4238,12 @@
         return;
       }
 
-      if (postEditorMode === 'admin-db') {
+      if (isAdmin()) {
         await saveAdminDatabasePost();
         return;
       }
 
-      if (!isAdmin()) { showToast('⛔ Access denied.'); return; }
-      const posts     = getInspirations();
-      const idVal     = document.getElementById('admin-id').value;
-      const title     = document.getElementById('admin-title').value.trim();
-      const category  = document.getElementById('admin-category').value;
-      const img       = document.getElementById('admin-img').value.trim();
-      const desc      = document.getElementById('admin-desc').value.trim();
-      const materials = document.getElementById('admin-materials').value.split(',').map(s => s.trim()).filter(Boolean);
-      let palette     = [];
-      try {
-        const raw = document.getElementById('admin-palette').value.trim();
-        if (raw) palette = JSON.parse(raw);
-      } catch { palette = []; }
-
-      if (idVal) {
-        const idx = posts.findIndex(p => p.id === parseInt(idVal));
-        if (idx > -1) {
-          posts[idx] = { ...posts[idx], title, category, img, desc, materials, palette };
-        }
-      } else {
-        const newId = posts.length > 0 ? Math.max(...posts.map(p => p.id)) + 1 : 1;
-        posts.push({ id: newId, title, category, img, desc, materials, palette });
-      }
-
-      saveInspirations(posts);
-      closeAdminModal();
-      loadAdminDashboard();
-      showToast('✦ Post saved successfully!');
+      showToast('⛔ Admin access required.');
     }
 
     function deletePost(id) {
