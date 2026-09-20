@@ -3119,10 +3119,14 @@
       }
 
       const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
-        redirectTo: 'https://kashvisaxenaks-cpu.github.io/Kasa_Vaas/?reset=1'
+        redirectTo: 'https://kashvisaxenaks-cpu.github.io/Kasa_Vaas/'
       });
 
-      if (error) console.error('Kasa Vaas password reset error:', error);
+      if (error) {
+        console.error('Kasa Vaas password reset error:', error);
+        showToast(`⚠️ ${error.message || 'Could not send the reset email.'}`);
+        return;
+      }
 
       showToast('✉️ If an account exists for this email, a reset link has been sent.');
     }
