@@ -19,7 +19,7 @@
     // Keep the website's login state in sync after Google redirects and OTP sign-in.
     supabaseClient.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
-        const role = session.user.user_metadata?.role || 'client';
+        const role = session.user.app_metadata?.role || session.user.user_metadata?.role || 'client';
         localStorage.setItem('kasa_user_logged_in', 'true');
         localStorage.setItem('kasa_role', role);
 
@@ -2633,7 +2633,7 @@
         return;
       }
 
-      const role = (user.user_metadata?.role || 'client').toLowerCase();
+      const role = (user.app_metadata?.role || user.user_metadata?.role || 'client').toLowerCase();
       const table = role === 'designer' ? 'designers' : 'customers';
 
       const { data: profile, error: profileError } = await supabaseClient
@@ -2932,7 +2932,25 @@
 
     // ── FORM HANDLERS ────────────────────────
     const ADMIN_EMAIL = 'admin@kasavaas.com';
-    const ADMIN_PASS  = 'admin123';
+
+    async function ensureAdminRole() {
+      const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+      if (userError || !user) throw new Error('Please sign in first.');
+
+      if ((user.email || '').toLowerCase() !== ADMIN_EMAIL) return user;
+
+      const currentRole = (user.app_metadata?.role || '').toLowerCase();
+      if (currentRole === 'admin') return user;
+
+      const { error } = await supabaseClient.functions.invoke('bootstrap-admin', { body: {} });
+      if (error) throw new Error(error.message || 'Could not activate the admin account.');
+
+      const { data: refreshed, error: refreshError } = await supabaseClient.auth.refreshSession();
+      if (refreshError || !refreshed?.user) {
+        throw new Error('Admin role was activated, but the session could not be refreshed. Please sign in again.');
+      }
+      return refreshed.user;
+    }
 
     async function handleLogin(e) {
       e.preventDefault();
@@ -2945,17 +2963,6 @@
       btn.disabled = true;
 
       try {
-        // Keep the existing developer dashboard login separate for now.
-        if (email === ADMIN_EMAIL && pass === ADMIN_PASS) {
-          localStorage.setItem('kasa_user_logged_in', 'true');
-          localStorage.setItem('kasa_role', 'admin');
-          closeAuth();
-          showToast('🛠  Welcome, Developer!');
-          loadAdminDashboard();
-          showView('view-admin');
-          return;
-        }
-
         const { data, error } = await supabaseClient.auth.signInWithPassword({
           email,
           password: pass
@@ -2963,10 +2970,22 @@
 
         if (error) throw error;
 
+        let user = data.user;
+        if ((email || '').toLowerCase() === ADMIN_EMAIL) user = await ensureAdminRole();
+
+        const role = (user?.app_metadata?.role || user?.user_metadata?.role || 'client').toLowerCase();
         localStorage.setItem('kasa_user_logged_in', 'true');
-        localStorage.setItem('kasa_role', data.user?.user_metadata?.role || 'client');
+        localStorage.setItem('kasa_role', role);
 
         closeAuth();
+
+        if (role === 'admin') {
+          showToast('👑 Welcome, Kasa Vaas Admin!');
+          await loadAdminDashboard();
+          showView('view-admin');
+          return;
+        }
+
         showToast('✦  Welcome back to Kasa Vaas!');
 
         if (intendedCategory) {
@@ -3031,8 +3050,12 @@
         // Supabase may require email confirmation. Only treat the user as
         // logged in when Supabase actually returned a session.
         if (data.session) {
+          let signedInUser = data.user;
+          if (email.toLowerCase() === ADMIN_EMAIL) signedInUser = await ensureAdminRole();
+
+          const signedInRole = (signedInUser?.app_metadata?.role || signedInUser?.user_metadata?.role || role).toLowerCase();
           localStorage.setItem('kasa_user_logged_in', 'true');
-          localStorage.setItem('kasa_role', role);
+          localStorage.setItem('kasa_role', signedInRole);
 
           // Send the Kasa Vaas welcome email through the secure Edge Function.
           const { error: emailError } = await supabaseClient.functions.invoke('send-email', {
@@ -3342,10 +3365,12 @@
           : `<img src="${escapeHtml(item.img)}" alt="${escapeHtml(item.title)}" class="mb-item-img" loading="lazy" />`;
 
         const ownPost = Boolean(user && item.author_id && item.author_id === user.id);
-        const controls = ownPost ? `
+        const isDbPost = Boolean(item.author_id);
+        const canManagePost = isDbPost && (ownPost || role === 'admin');
+        const controls = canManagePost ? `
           <div class="designer-post-actions">
-            <button type="button" class="designer-post-action edit">Edit</button>
-            <button type="button" class="designer-post-action delete">Delete</button>
+            <button type="button" class="designer-post-action edit">${role === 'admin' && !ownPost ? 'Admin Edit' : 'Edit'}</button>
+            <button type="button" class="designer-post-action delete">${role === 'admin' && !ownPost ? 'Admin Delete' : 'Delete'}</button>
           </div>
         ` : '';
 
@@ -3355,14 +3380,16 @@
           ${controls}
         `;
 
-        if (ownPost) {
+        if (canManagePost) {
           div.querySelector('.edit').onclick = (event) => {
             event.stopPropagation();
-            openDesignerPostModal(item.id);
+            if (role === 'admin') openAdminDatabasePostModal(item.id);
+            else openDesignerPostModal(item.id);
           };
           div.querySelector('.delete').onclick = (event) => {
             event.stopPropagation();
-            deleteDesignerPost(item.id);
+            if (role === 'admin') deleteAdminDatabasePost(item.id);
+            else deleteDesignerPost(item.id);
           };
         }
 
@@ -3637,25 +3664,129 @@
       }
     }
 
+    // ── DATABASE POST ADMIN MANAGEMENT ─────────
+    async function openAdminDatabasePostModal(id) {
+      const { user, role } = await getCurrentAppRole();
+      if (!user || role !== 'admin') { showToast('⛔ Admin access required.'); return; }
+
+      const { data: post, error } = await supabaseClient.from('posts').select('*').eq('id', id).single();
+      if (error || !post) { showToast('⚠️ Could not load that designer post.'); return; }
+
+      postEditorMode = 'admin-db';
+      designerSelectedFile = null;
+      designerExistingImagePath = post.image_path || null;
+      document.getElementById('admin-modal').classList.remove('hidden');
+      document.getElementById('adminForm').reset();
+      clearModalMedia();
+      document.getElementById('admin-modal-title').textContent = 'Edit Designer Post';
+      document.getElementById('admin-id').value = post.id;
+      document.getElementById('admin-title').value = post.title;
+      document.getElementById('admin-category').value = post.category;
+      document.getElementById('admin-desc').value = post.description || '';
+      document.getElementById('admin-materials').value = (post.materials || []).join(', ');
+      document.getElementById('admin-palette').value = JSON.stringify(post.palette || []);
+      setModalMedia(post.img, post.title, post.media_type || 'image');
+    }
+
+    async function saveAdminDatabasePost() {
+      const { user, role } = await getCurrentAppRole();
+      if (!user || role !== 'admin') { showToast('⛔ Admin access required.'); return; }
+
+      const id = document.getElementById('admin-id').value.trim();
+      const title = document.getElementById('admin-title').value.trim();
+      const category = document.getElementById('admin-category').value;
+      const description = document.getElementById('admin-desc').value.trim();
+      const materials = document.getElementById('admin-materials').value.split(',').map(s => s.trim()).filter(Boolean);
+      let palette = [];
+      try {
+        const raw = document.getElementById('admin-palette').value.trim();
+        if (raw) palette = JSON.parse(raw);
+      } catch { showToast('⚠️ Palette must be valid JSON.'); return; }
+      if (!id || !title || !description) { showToast('⚠️ Please fill in the title and description.'); return; }
+
+      let imageUrl = document.getElementById('admin-img').value.trim();
+      let imagePath = designerExistingImagePath;
+      let mediaType = 'image';
+
+      if (designerSelectedFile) {
+        if (!designerSelectedFile.type.startsWith('image/')) { showToast('⚠️ Please choose an image for your post.'); return; }
+        const extension = (designerSelectedFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+        imagePath = `${user.id}/admin-${crypto.randomUUID()}.${extension}`;
+        const { error: uploadError } = await supabaseClient.storage.from('designer-posts').upload(imagePath, designerSelectedFile, {
+          cacheControl: '3600', upsert: false, contentType: designerSelectedFile.type
+        });
+        if (uploadError) { showToast(`⚠️ ${uploadError.message || 'Could not upload image.'}`); return; }
+        const { data: publicUrlData } = supabaseClient.storage.from('designer-posts').getPublicUrl(imagePath);
+        imageUrl = publicUrlData.publicUrl;
+      }
+
+      const { error } = await supabaseClient.from('posts').update({
+        category, title, img: imageUrl, image_path: imagePath, media_type: mediaType, description, materials, palette
+      }).eq('id', id);
+
+      if (error) {
+        if (designerSelectedFile && imagePath) await supabaseClient.storage.from('designer-posts').remove([imagePath]);
+        showToast(`⚠️ ${error.message || 'Could not update the designer post.'}`);
+        return;
+      }
+
+      if (designerSelectedFile && designerExistingImagePath && designerExistingImagePath !== imagePath) {
+        await supabaseClient.storage.from('designer-posts').remove([designerExistingImagePath]);
+      }
+      closeAdminModal();
+      showToast('✦ Designer post updated.');
+      if (currentMoodboardCategory) await loadMoodboard(currentMoodboardCategory);
+      await loadAdminDashboard();
+    }
+
+    async function deleteAdminDatabasePost(id) {
+      const { user, role } = await getCurrentAppRole();
+      if (!user || role !== 'admin') { showToast('⛔ Admin access required.'); return; }
+      const { data: post, error: loadError } = await supabaseClient.from('posts').select('id, image_path').eq('id', id).single();
+      if (loadError || !post) { showToast('⚠️ Could not load that designer post.'); return; }
+      if (!confirm('Delete this designer post permanently?')) return;
+      const { error } = await supabaseClient.from('posts').delete().eq('id', id);
+      if (error) { showToast(`⚠️ ${error.message || 'Could not delete the designer post.'}`); return; }
+      if (post.image_path) await supabaseClient.storage.from('designer-posts').remove([post.image_path]);
+      closeInspiration();
+      showToast('Designer post deleted.');
+      if (currentMoodboardCategory) await loadMoodboard(currentMoodboardCategory);
+      await loadAdminDashboard();
+    }
+
     // ── ADMIN PANEL ───────────────────────────
     function isAdmin() {
       return localStorage.getItem('kasa_role') === 'admin';
     }
 
-    function loadAdminDashboard() {
+    async function loadAdminDashboard() {
       if (!isAdmin()) { showToast('⛔ Access denied.'); showView('view-landing'); return; }
       const posts = getInspirations();
+      const dbPosts = await getDatabasePosts();
       const tbody = document.getElementById('admin-tbody');
       tbody.innerHTML = '';
       posts.forEach(post => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td>${post.id}</td>
-          <td>${post.title}</td>
-          <td>${post.category}</td>
+          <td>${escapeHtml(post.id)}</td>
+          <td>${escapeHtml(post.title)}</td>
+          <td>${escapeHtml(post.category)}</td>
           <td>
             <button class="btn-edit" onclick="openAdminModal(${post.id})">Edit</button>
             <button class="btn-delete" onclick="deletePost(${post.id})">Delete</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+      dbPosts.forEach(post => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${escapeHtml(post.id)}</td>
+          <td>${escapeHtml(post.title)}</td>
+          <td>${escapeHtml(post.category)}</td>
+          <td>
+            <button class="btn-edit" onclick='openAdminDatabasePostModal(${JSON.stringify(post.id)})'>Edit</button>
+            <button class="btn-delete" onclick='deleteAdminDatabasePost(${JSON.stringify(post.id)})'>Delete</button>
           </td>
         `;
         tbody.appendChild(tr);
@@ -3696,8 +3827,13 @@
     async function savePost(e) {
       e.preventDefault();
 
-      if (postEditorMode === 'designer') {
+      if (postEditorMode === 'designer' || postEditorMode === 'admin-db') {
         await saveDesignerPost();
+        return;
+      }
+
+      if (postEditorMode === 'admin-db') {
+        await saveAdminDatabasePost();
         return;
       }
 
@@ -3740,7 +3876,8 @@
       showToast('Post deleted.');
     }
 
-    function adminLogout() {
+    async function adminLogout() {
+      await supabaseClient.auth.signOut();
       localStorage.removeItem('kasa_role');
       localStorage.removeItem('kasa_user_logged_in');
       showView('view-landing');
