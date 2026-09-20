@@ -14,8 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Restore previously posted custom inspirations
-        shell: python
         run: |
+          python3 <<'PY'
           from pathlib import Path
 
           path = Path("index.html")
@@ -70,6 +70,7 @@ jobs:
               raise SystemExit("Target getAllInspirations block was not found")
 
           path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
       - name: Commit fix
         run: |
           if git diff --quiet; then
@@ -84,7 +85,6 @@ jobs:
       - name: Remove temporary workflow
         if: success()
         run: |
-          rm -f .github/workflows/fix-local-post-display.yml
-          git add .github/workflows/fix-local-post-display.yml
-          git commit -m "Remove temporary display fix workflow" || true
-          git push || true
+          git rm -f .github/workflows/fix-local-post-display.yml
+          git commit -m "Remove temporary display fix workflow"
+          git push
