@@ -3827,7 +3827,7 @@
     async function savePost(e) {
       e.preventDefault();
 
-      if (postEditorMode === 'designer' || postEditorMode === 'admin-db') {
+      if (postEditorMode === 'designer') {
         await saveDesignerPost();
         return;
       }
@@ -3963,7 +3963,7 @@
       if (!files || !files.length) return;
       const file = files[0];
 
-      if (postEditorMode === 'designer') {
+      if (postEditorMode === 'designer' || postEditorMode === 'admin-db') {
         designerSelectedFile = file;
         const reader = new FileReader();
         reader.onload = e => setModalMedia(e.target.result, file.name, file.type);
