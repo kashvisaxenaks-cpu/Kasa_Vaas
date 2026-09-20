@@ -1869,6 +1869,27 @@
       .profile-signout-btn { width: 100%; }
     }
 
+      /* ─── DESIGNER POST CONTROLS ─────────────────── */
+    .designer-post-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+      position: relative;
+      z-index: 3;
+    }
+    .designer-post-action {
+      border: 1px solid rgba(201,169,110,0.35);
+      background: rgba(14,13,11,0.82);
+      color: var(--gold-light);
+      padding: 5px 9px;
+      border-radius: 3px;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .designer-post-action.delete { color: #e7a6a0; border-color: rgba(200,100,90,0.35); }
+    .designer-post-action:hover { background: rgba(201,169,110,0.16); }
   </style>
 </head>
 <body>
@@ -2153,6 +2174,9 @@
       <h2 class="mb-title" id="mb-title-text">Residential Designs</h2>
       <div id="mb-admin-actions" style="display:none;">
         <button class="admin-btn" onclick="openAdminModal()" style="font-size:13px; padding:8px 16px;">+ Add Post</button>
+      </div>
+      <div id="mb-designer-actions" style="display:none;">
+        <button class="admin-btn" onclick="openDesignerPostModal()" style="font-size:13px; padding:8px 16px;">+ Add My Post</button>
       </div>
     </div>
     <div class="mb-grid" id="mb-grid">
