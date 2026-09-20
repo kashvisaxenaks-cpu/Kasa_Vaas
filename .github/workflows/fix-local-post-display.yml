@@ -1,0 +1,90 @@
+name: Fix local post display
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore previously posted custom inspirations
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("index.html")
+          text = path.read_text(encoding="utf-8")
+
+          old = """    async function getAllInspirations() {
+      // Public inspiration feed comes only from Supabase.
+      // DEFAULT_INSPIRATIONS is kept in the source for reference, but sample
+      // posts must never reappear after an admin deletes them.
+      return await getDatabasePosts();
+    }"""
+
+          new = """    async function getAllInspirations() {
+      // Load live database posts first.
+      const dbPosts = await getDatabasePosts();
+
+      // Keep previously published custom posts that were stored by the older
+      // localStorage-based publisher. Never restore the built-in sample posts.
+      let legacyPosts = [];
+      try {
+        const stored = localStorage.getItem('kasa_posts');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const defaultTitles = new Set(DEFAULT_INSPIRATIONS.map(post => post.title));
+          legacyPosts = (Array.isArray(parsed) ? parsed : [])
+            .filter(post => post && !defaultTitles.has(post.title))
+            .map(post => ({
+              id: post.id,
+              author_id: post.author_id || null,
+              category: post.category,
+              title: post.title,
+              img: post.img,
+              image_path: post.image_path || null,
+              media_type: post.media_type || (post.img?.startsWith('data:video') ? 'video' : 'image'),
+              desc: post.desc || post.description || '',
+              materials: Array.isArray(post.materials) ? post.materials : [],
+              palette: Array.isArray(post.palette) ? post.palette : []
+            }));
+        }
+      } catch (error) {
+        console.warn('Kasa Vaas legacy inspiration load warning:', error);
+      }
+
+      // A post already migrated to Supabase should appear only once.
+      const dbTitles = new Set(dbPosts.map(post => String(post.title)));
+      const uniqueLegacyPosts = legacyPosts.filter(post => !dbTitles.has(String(post.title)));
+
+      return [...dbPosts, ...uniqueLegacyPosts];
+    }"""
+
+          if old not in text:
+              raise SystemExit("Target getAllInspirations block was not found")
+
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+      - name: Commit fix
+        run: |
+          if git diff --quiet; then
+            echo "No changes needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Show previously posted custom inspirations"
+          git push
+      - name: Remove temporary workflow
+        if: success()
+        run: |
+          rm -f .github/workflows/fix-local-post-display.yml
+          git add .github/workflows/fix-local-post-display.yml
+          git commit -m "Remove temporary display fix workflow" || true
+          git push || true
