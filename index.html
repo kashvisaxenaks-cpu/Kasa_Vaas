@@ -1898,7 +1898,11 @@
     .designer-post-action:hover { background: rgba(201,169,110,0.16); }
   
     .insp-title-row { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+    .insp-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; flex-shrink:0; }
     .save-moodboard-btn { flex-shrink:0; padding:9px 14px; border:1px solid var(--gold); border-radius:2px; background:rgba(201,169,110,0.08); color:var(--gold); font-family:'Inter',sans-serif; font-size:10px; font-weight:600; letter-spacing:1.4px; text-transform:uppercase; cursor:pointer; transition:all .3s ease; }
+    .view-my-moodboard-btn { flex-shrink:0; padding:9px 14px; border:1px solid rgba(245,239,230,0.22); border-radius:2px; background:rgba(245,239,230,0.04); color:var(--text-light); font-family:'Inter',sans-serif; font-size:10px; font-weight:600; letter-spacing:1.4px; text-transform:uppercase; cursor:pointer; transition:all .3s ease; }
+    .view-my-moodboard-btn:hover { border-color:var(--gold); color:var(--gold); background:rgba(201,169,110,0.08); }
+    .save-moodboard-btn:hover, .save-moodboard-btn.saved { background:var(--gold); color:var(--dark); }
     .save-moodboard-btn:hover, .save-moodboard-btn.saved { background:var(--gold); color:var(--dark); }
     .saved-empty { grid-column:1/-1; text-align:center; padding:90px 30px; border:1px solid var(--glass-border); background:rgba(201,169,110,.04); }
     .saved-empty h3 { font-family:'DM Serif Display',serif; font-size:38px; color:var(--cream); margin-bottom:12px; }
@@ -2226,7 +2230,10 @@
             <h2 class="insp-title" id="insp-title">Warm Scandinavian Bedroom</h2>
             <p class="insp-desc" id="insp-desc">A beautiful design mixing oak wood and muted tones.</p>
           </div>
-          <button type="button" class="save-moodboard-btn" id="save-moodboard-btn" onclick="toggleSavedMoodboard()" aria-label="Save this moodboard">♡ Save</button>
+          <div class="insp-actions">
+            <button type="button" class="save-moodboard-btn" id="save-moodboard-btn" onclick="toggleSavedMoodboard()" aria-label="Save this moodboard">♡ Save</button>
+            <button type="button" class="view-my-moodboard-btn" onclick="openSavedMoodboards()" aria-label="View my saved moodboard">View My Moodboard</button>
+          </div>
         </div>
         
         <div>
@@ -2962,17 +2969,57 @@
     let intendedCategory = null;
     let pendingPostAuthDestination = null;
 
-    function getSavedMoodboardStorageKey(userId = window.kasaCurrentUserId) {
-      return userId ? `kasa_saved_moodboards_${userId}` : 'kasa_saved_moodboards';
+    async function migrateLegacySavedMoodboards(user) {
+      if (!user) return;
+      const migrationKey = `kasa_saved_moodboards_migrated_${user.id}`;
+      if (localStorage.getItem(migrationKey) === 'true') return;
+
+      try {
+        const legacyKeys = [
+          `kasa_saved_moodboards_${user.id}`,
+          'kasa_saved_moodboards'
+        ];
+        const legacyIds = [];
+        legacyKeys.forEach(key => {
+          try {
+            const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+            if (Array.isArray(parsed)) parsed.forEach(id => {
+              if (!legacyIds.map(String).includes(String(id))) legacyIds.push(id);
+            });
+          } catch {}
+        });
+
+        if (legacyIds.length) {
+          await supabaseClient.from('saved_moodboards').upsert(
+            legacyIds.map(postId => ({ user_id: user.id, post_id: String(postId) })),
+            { onConflict: 'user_id,post_id', ignoreDuplicates: true }
+          );
+        }
+      } catch (error) {
+        console.warn('Kasa Vaas saved moodboard migration warning:', error);
+      } finally {
+        localStorage.setItem(migrationKey, 'true');
+      }
     }
 
-    function getSavedMoodboardIds(userId = window.kasaCurrentUserId) {
-      try { return JSON.parse(localStorage.getItem(getSavedMoodboardStorageKey(userId)) || '[]'); }
-      catch { return []; }
-    }
+    async function getSavedMoodboardIds() {
+      const user = await getCurrentAuthUser();
+      if (!user) return [];
 
-    function saveSavedMoodboardIds(ids, userId = window.kasaCurrentUserId) {
-      localStorage.setItem(getSavedMoodboardStorageKey(userId), JSON.stringify(ids));
+      await migrateLegacySavedMoodboards(user);
+
+      const { data, error } = await supabaseClient
+        .from('saved_moodboards')
+        .select('post_id')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Kasa Vaas saved moodboards load error:', error);
+        return [];
+      }
+
+      return (data || []).map(row => String(row.post_id));
     }
 
     async function openSavedMoodboards() {
@@ -2992,7 +3039,7 @@
       if (!grid) return;
       grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-muted);">Loading your saved moodboards…</div>';
 
-      const savedIds = getSavedMoodboardIds().map(String);
+      const savedIds = await getSavedMoodboardIds();
       const all = await getAllInspirations();
       const saved = all.filter(item => savedIds.includes(String(item.id)));
 
@@ -3027,25 +3074,56 @@
       const currentId = window.currentInspirationId;
       if (currentId === undefined || currentId === null) return;
 
-      const ids = getSavedMoodboardIds();
-      const index = ids.map(String).indexOf(String(currentId));
-      if (index >= 0) {
-        ids.splice(index, 1);
+      await migrateLegacySavedMoodboards(user);
+      const { data: existing, error: lookupError } = await supabaseClient
+        .from('saved_moodboards')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('post_id', String(currentId))
+        .maybeSingle();
+
+      if (lookupError) {
+        console.error('Kasa Vaas saved moodboard lookup error:', lookupError);
+        showToast('⚠️ Could not update your moodboard.');
+        return;
+      }
+
+      if (existing) {
+        const { error } = await supabaseClient
+          .from('saved_moodboards')
+          .delete()
+          .eq('id', existing.id);
+        if (error) {
+          showToast('⚠️ Could not remove this moodboard.');
+          return;
+        }
         showToast('Moodboard removed from your saves.');
       } else {
-        ids.push(currentId);
+        const { error } = await supabaseClient
+          .from('saved_moodboards')
+          .upsert(
+            { user_id: user.id, post_id: String(currentId) },
+            { onConflict: 'user_id,post_id', ignoreDuplicates: true }
+          );
+        if (error) {
+          console.error('Kasa Vaas saved moodboard save error:', error);
+          showToast('⚠️ Could not save this moodboard.');
+          return;
+        }
         showToast('✦ Moodboard saved to your collection.');
       }
-      saveSavedMoodboardIds(ids);
-      updateSaveMoodboardButton();
+
+      await updateSaveMoodboardButton();
     }
 
-    function updateSaveMoodboardButton() {
+    async function updateSaveMoodboardButton() {
       const btn = document.getElementById('save-moodboard-btn');
       if (!btn) return;
       const currentId = window.currentInspirationId;
-      const saved = currentId !== undefined && currentId !== null &&
-        getSavedMoodboardIds().map(String).includes(String(currentId));
+      if (currentId === undefined || currentId === null) return;
+
+      const savedIds = await getSavedMoodboardIds();
+      const saved = savedIds.includes(String(currentId));
       btn.classList.toggle('saved', saved);
       btn.textContent = saved ? '♥ Saved' : '♡ Save';
     }
@@ -3062,11 +3140,22 @@
 
       if (destination === 'save-current-moodboard') {
         if (window.currentInspirationId !== undefined && window.currentInspirationId !== null) {
-          const ids = getSavedMoodboardIds();
-          if (!ids.map(String).includes(String(window.currentInspirationId))) ids.push(window.currentInspirationId);
-          saveSavedMoodboardIds(ids);
-          updateSaveMoodboardButton();
-          showToast('✦ Moodboard saved to your collection.');
+          const user = await getCurrentAuthUser();
+          if (user) {
+            await migrateLegacySavedMoodboards(user);
+            const { error } = await supabaseClient
+              .from('saved_moodboards')
+              .upsert(
+                { user_id: user.id, post_id: String(window.currentInspirationId) },
+                { onConflict: 'user_id,post_id', ignoreDuplicates: true }
+              );
+            if (error) {
+              showToast('⚠️ Could not save this moodboard.');
+              return;
+            }
+            await updateSaveMoodboardButton();
+            showToast('✦ Moodboard saved to your collection.');
+          }
         }
         return;
       }
