@@ -3259,64 +3259,153 @@
       localStorage.setItem('kasa_posts', JSON.stringify(data));
     }
 
-    function loadMoodboard(category) {
+    let postEditorMode = 'admin';
+    let designerSelectedFile = null;
+    let designerExistingImagePath = null;
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;'
+      }[ch]));
+    }
+
+    async function getDatabasePosts() {
+      const { data, error } = await supabaseClient
+        .from('posts')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Kasa Vaas posts load error:', error);
+        return [];
+      }
+
+      return (data || []).map(post => ({
+        id: post.id,
+        author_id: post.author_id,
+        category: post.category,
+        title: post.title,
+        img: post.img,
+        image_path: post.image_path,
+        media_type: post.media_type || 'image',
+        desc: post.description || '',
+        materials: Array.isArray(post.materials) ? post.materials : [],
+        palette: Array.isArray(post.palette) ? post.palette : []
+      }));
+    }
+
+    async function getAllInspirations() {
+      const dbPosts = await getDatabasePosts();
+      return [...DEFAULT_INSPIRATIONS, ...dbPosts];
+    }
+
+    async function getCurrentAuthUser() {
+      const { data: { user } } = await supabaseClient.auth.getUser();
+      return user || null;
+    }
+
+    async function getCurrentAppRole() {
+      const user = await getCurrentAuthUser();
+      return {
+        user,
+        role: (user?.app_metadata?.role || user?.user_metadata?.role || '').toLowerCase()
+      };
+    }
+
+    let currentMoodboardCategory = null;
+
+    async function loadMoodboard(category) {
+      currentMoodboardCategory = category;
       document.getElementById('mb-title-text').textContent = category + ' Designs';
-      // Show Add Post button only for admins
-      document.getElementById('mb-admin-actions').style.display = isAdmin() ? 'block' : 'none';
+
+      const { user, role } = await getCurrentAppRole();
+      document.getElementById('mb-admin-actions').style.display = role === 'admin' ? 'block' : 'none';
+      document.getElementById('mb-designer-actions').style.display = role === 'designer' ? 'block' : 'none';
+
       const grid = document.getElementById('mb-grid');
-      grid.innerHTML = '';
-      const all = getInspirations();
+      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-muted);">Loading designs…</div>';
+
+      const all = await getAllInspirations();
       let items = all.filter(i => i.category === category);
       if (items.length === 0) items = all;
       const displayItems = [...items, ...items, ...items].slice(0, 8);
+
+      grid.innerHTML = '';
+
       displayItems.forEach((item) => {
         const div = document.createElement('div');
         div.className = 'mb-item';
         div.onclick = () => openInspiration(item.id);
+
+        const media = item.media_type === 'video'
+          ? `<video src="${escapeHtml(item.img)}" class="mb-item-img" muted playsinline></video>`
+          : `<img src="${escapeHtml(item.img)}" alt="${escapeHtml(item.title)}" class="mb-item-img" loading="lazy" />`;
+
+        const ownPost = Boolean(user && item.author_id && item.author_id === user.id);
+        const controls = ownPost ? `
+          <div class="designer-post-actions">
+            <button type="button" class="designer-post-action edit">Edit</button>
+            <button type="button" class="designer-post-action delete">Delete</button>
+          </div>
+        ` : '';
+
         div.innerHTML = `
-          <img src="${item.img}" alt="${item.title}" class="mb-item-img" loading="lazy" />
-          <div class="mb-item-title">${item.title}</div>
+          ${media}
+          <div class="mb-item-title">${escapeHtml(item.title)}</div>
+          ${controls}
         `;
+
+        if (ownPost) {
+          div.querySelector('.edit').onclick = (event) => {
+            event.stopPropagation();
+            openDesignerPostModal(item.id);
+          };
+          div.querySelector('.delete').onclick = (event) => {
+            event.stopPropagation();
+            deleteDesignerPost(item.id);
+          };
+        }
+
         grid.appendChild(div);
       });
     }
 
 
-    function openInspiration(id) {
-      const all = getInspirations();
-      const item = all.find(i => i.id === id) || all[0];
-      
+    async function openInspiration(id) {
+      const all = await getAllInspirations();
+      const item = all.find(i => String(i.id) === String(id)) || all[0];
+      if (!item) return;
+
       document.getElementById('insp-img').src = item.img;
       document.getElementById('insp-title').textContent = item.title;
       document.getElementById('insp-desc').textContent = item.desc;
-      
-      document.getElementById('insp-materials').innerHTML = item.materials.map(m => 
-        `<span class="insp-material-tag">${m}</span>`
+
+      document.getElementById('insp-materials').innerHTML = (item.materials || []).map(m =>
+        `<span class="insp-material-tag">${escapeHtml(m)}</span>`
       ).join('');
-      
-      document.getElementById('insp-palette').innerHTML = item.palette.map(p => `
+
+      document.getElementById('insp-palette').innerHTML = (item.palette || []).map(p => `
         <div class="insp-color">
-          <div class="insp-color-block" style="background-color: ${p.hex}"></div>
+          <div class="insp-color-block" style="background-color: ${escapeHtml(p.hex)}"></div>
           <div class="insp-color-name">
-            ${p.name}
-            <span class="insp-color-hex">(${p.hex})</span>
+            ${escapeHtml(p.name)}
+            <span class="insp-color-hex">(${escapeHtml(p.hex)})</span>
           </div>
         </div>
       `).join('');
-      
-      const similar = all.filter(i => i.id !== id).slice(0, 4);
+
+      const similar = all.filter(i => String(i.id) !== String(id)).slice(0, 4);
       document.getElementById('insp-similar').innerHTML = similar.map(s => `
-        <div class="insp-similar-item" onclick="openInspiration(${s.id})">
-          <img src="${s.img}" class="insp-similar-img" loading="lazy" />
-          <div class="insp-similar-title">${s.title}</div>
+        <div class="insp-similar-item" onclick="openInspiration('${String(s.id).replace(/'/g, "\\'")}')">
+          <img src="${escapeHtml(s.img)}" class="insp-similar-img" loading="lazy" />
+          <div class="insp-similar-title">${escapeHtml(s.title)}</div>
         </div>
       `).join('');
 
       const modal = document.getElementById('inspiration-modal');
       modal.classList.remove('hidden');
       setTimeout(() => modal.classList.add('show'), 10);
-      
-      // If auth modal was open, don't lock body twice
+
       if(!document.getElementById('auth-overlay').classList.contains('show')){
         document.body.style.overflow = 'hidden';
       }
@@ -3333,6 +3422,221 @@
         }
       }, 400);
     }
+    // ── DESIGNER POST MANAGEMENT ─────────────
+    async function openDesignerPostModal(id = null) {
+      const { user, role } = await getCurrentAppRole();
+      if (!user || role !== 'designer') {
+        showToast('⛔ Only signed-in designers can manage posts.');
+        return;
+      }
+
+      postEditorMode = 'designer';
+      designerSelectedFile = null;
+      designerExistingImagePath = null;
+
+      document.getElementById('admin-modal').classList.remove('hidden');
+      document.getElementById('adminForm').reset();
+      clearModalMedia();
+
+      document.getElementById('admin-modal-title').textContent = id ? 'Edit My Post' : 'Add My Post';
+      document.getElementById('admin-id').value = id || '';
+
+      if (!id) return;
+
+      const { data: post, error } = await supabaseClient
+        .from('posts')
+        .select('*')
+        .eq('id', id)
+        .eq('author_id', user.id)
+        .single();
+
+      if (error || !post) {
+        closeAdminModal();
+        showToast('⚠️ You can only edit your own posts.');
+        return;
+      }
+
+      document.getElementById('admin-title').value = post.title;
+      document.getElementById('admin-category').value = post.category;
+      document.getElementById('admin-img').value = post.img;
+      document.getElementById('admin-desc').value = post.description || '';
+      document.getElementById('admin-materials').value = (post.materials || []).join(', ');
+      document.getElementById('admin-palette').value = JSON.stringify(post.palette || []);
+      designerExistingImagePath = post.image_path || null;
+
+      setModalMedia(post.img, post.title, post.media_type || 'image');
+    }
+
+    async function saveDesignerPost() {
+      const { user, role } = await getCurrentAppRole();
+      if (!user || role !== 'designer') {
+        showToast('⛔ Only signed-in designers can manage posts.');
+        return;
+      }
+
+      const title = document.getElementById('admin-title').value.trim();
+      const category = document.getElementById('admin-category').value;
+      const description = document.getElementById('admin-desc').value.trim();
+      const materials = document.getElementById('admin-materials').value
+        .split(',').map(s => s.trim()).filter(Boolean);
+
+      let palette = [];
+      try {
+        const raw = document.getElementById('admin-palette').value.trim();
+        if (raw) palette = JSON.parse(raw);
+      } catch {
+        showToast('⚠️ Palette must be valid JSON.');
+        return;
+      }
+
+      if (!title || !description) {
+        showToast('⚠️ Please fill in the title and description.');
+        return;
+      }
+
+      let imageUrl = document.getElementById('admin-img').value.trim();
+      let imagePath = designerExistingImagePath;
+      let mediaType = 'image';
+
+      if (designerSelectedFile) {
+        if (!designerSelectedFile.type.startsWith('image/')) {
+          showToast('⚠️ Please choose an image for your post.');
+          return;
+        }
+
+        const extension = (designerSelectedFile.name.split('.').pop() || 'jpg')
+          .toLowerCase().replace(/[^a-z0-9]/g, '');
+        imagePath = `${user.id}/${crypto.randomUUID()}.${extension}`;
+
+        const { error: uploadError } = await supabaseClient.storage
+          .from('designer-posts')
+          .upload(imagePath, designerSelectedFile, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: designerSelectedFile.type
+          });
+
+        if (uploadError) {
+          console.error('Kasa Vaas designer image upload error:', uploadError);
+          showToast(`⚠️ ${uploadError.message || 'Could not upload image.'}`);
+          return;
+        }
+
+        const { data: publicUrlData } = supabaseClient.storage
+          .from('designer-posts')
+          .getPublicUrl(imagePath);
+
+        imageUrl = publicUrlData.publicUrl;
+        mediaType = 'image';
+      }
+
+      if (!imageUrl) {
+        showToast('⚠️ Please choose an image.');
+        return;
+      }
+
+      const idVal = document.getElementById('admin-id').value.trim();
+      let error = null;
+
+      if (idVal) {
+        const { error: updateError } = await supabaseClient
+          .from('posts')
+          .update({
+            category,
+            title,
+            img: imageUrl,
+            image_path: imagePath,
+            media_type: mediaType,
+            description,
+            materials,
+            palette
+          })
+          .eq('id', idVal)
+          .eq('author_id', user.id);
+
+        error = updateError;
+
+        if (!error && designerSelectedFile && designerExistingImagePath && designerExistingImagePath !== imagePath) {
+          await supabaseClient.storage.from('designer-posts').remove([designerExistingImagePath]);
+        }
+      } else {
+        const { error: insertError } = await supabaseClient
+          .from('posts')
+          .insert({
+            author_id: user.id,
+            category,
+            title,
+            img: imageUrl,
+            image_path: imagePath,
+            media_type: mediaType,
+            description,
+            materials,
+            palette
+          });
+
+        error = insertError;
+      }
+
+      if (error) {
+        console.error('Kasa Vaas designer post save error:', error);
+        if (designerSelectedFile && imagePath) {
+          await supabaseClient.storage.from('designer-posts').remove([imagePath]);
+        }
+        showToast(`⚠️ ${error.message || 'Could not save your post.'}`);
+        return;
+      }
+
+      closeAdminModal();
+      showToast(idVal ? '✦ Your post was updated!' : '✦ Your post was published!');
+      if (typeof currentMoodboardCategory !== 'undefined' && currentMoodboardCategory) {
+        loadMoodboard(currentMoodboardCategory);
+      }
+    }
+
+    async function deleteDesignerPost(id) {
+      const { user, role } = await getCurrentAppRole();
+      if (!user || role !== 'designer') {
+        showToast('⛔ Only signed-in designers can manage posts.');
+        return;
+      }
+
+      const { data: post, error: loadError } = await supabaseClient
+        .from('posts')
+        .select('id, image_path')
+        .eq('id', id)
+        .eq('author_id', user.id)
+        .single();
+
+      if (loadError || !post) {
+        showToast('⚠️ You can only delete your own posts.');
+        return;
+      }
+
+      if (!confirm('Delete this post permanently?')) return;
+
+      const { error } = await supabaseClient
+        .from('posts')
+        .delete()
+        .eq('id', id)
+        .eq('author_id', user.id);
+
+      if (error) {
+        console.error('Kasa Vaas designer post delete error:', error);
+        showToast(`⚠️ ${error.message || 'Could not delete your post.'}`);
+        return;
+      }
+
+      if (post.image_path) {
+        await supabaseClient.storage.from('designer-posts').remove([post.image_path]);
+      }
+
+      closeInspiration();
+      showToast('Post deleted.');
+      if (typeof currentMoodboardCategory !== 'undefined' && currentMoodboardCategory) {
+        loadMoodboard(currentMoodboardCategory);
+      }
+    }
+
     // ── ADMIN PANEL ───────────────────────────
     function isAdmin() {
       return localStorage.getItem('kasa_role') === 'admin';
@@ -3509,6 +3813,15 @@
     function handleModalFile(files) {
       if (!files || !files.length) return;
       const file = files[0];
+
+      if (postEditorMode === 'designer') {
+        designerSelectedFile = file;
+        const reader = new FileReader();
+        reader.onload = e => setModalMedia(e.target.result, file.name, file.type);
+        reader.readAsDataURL(file);
+        return;
+      }
+
       const reader = new FileReader();
       reader.onload = e => {
         const lib = getMediaLibrary();
@@ -3554,6 +3867,10 @@
 
     // ── MEDIA PICKER OVERLAY ──────────────────
     function openMediaPicker() {
+      if (postEditorMode === 'designer') {
+        showToast('Designer posts use your own uploaded image.');
+        return;
+      }
       if (!isAdmin()) return;
       renderMediaPickerGrid();
       const overlay = document.getElementById('media-picker-overlay');
