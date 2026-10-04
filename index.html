@@ -2160,10 +2160,10 @@
       <div class="footer-col">
         <h5>Discover</h5>
         <div class="footer-links">
-          <a href="#">Trending Now</a>
-          <a href="#">New Arrivals</a>
-          <a href="#">Featured Designs</a>
-          <a href="#">Collections</a>
+          <a href="#categories" onclick="goToSection('categories'); return false;">Trending Now</a>
+          <a href="#categories" onclick="goToSection('categories'); return false;">New Arrivals</a>
+          <a href="#categories" onclick="goToSection('categories'); return false;">Featured Designs</a>
+          <a href="#categories" onclick="goToSection('categories'); return false;">Collections</a>
           <a href="#" onclick="openSavedMoodboards(); return false;">Moodboards</a>
         </div>
       </div>
@@ -2171,17 +2171,17 @@
         <h5>For Designers</h5>
         <div class="footer-links">
           <a href="#" onclick="openAuth('login'); return false;">Join as Expert</a>
-          <a href="#">Portfolio Upload</a>
-          <a href="#">Verification</a>
+          <a href="#" onclick="openAuth('login'); return false;">Portfolio Upload</a>
+          <a href="#" onclick="openAuth('login'); return false;">Verification</a>
         </div>
       </div>
       <div class="footer-col">
         <h5>Company</h5>
         <div class="footer-links">
-          <a href="#">About Kasa Vaas</a>
-          <a href="#">Careers</a>
-          <a href="#">Privacy Policy</a>
-          <a href="#">Terms of Service</a>
+          <a href="#about" onclick="goToSection('about'); return false;">About Kasa Vaas</a>
+          <a href="#" onclick="showToast('✦ Careers are coming soon to Kasa Vaas.'); return false;">Careers</a>
+          <a href="#" onclick="showToast('✦ Privacy Policy is being prepared.'); return false;">Privacy Policy</a>
+          <a href="#" onclick="showToast('✦ Terms of Service are being prepared.'); return false;">Terms of Service</a>
         </div>
       </div>
     </div>
@@ -3055,6 +3055,14 @@
         return '<div class="mb-item" onclick="openInspiration(\'' + String(item.id).replace(/'/g, "\\'") + '\')">' +
           media + '<div class="mb-item-title">' + escapeHtml(item.title) + '</div></div>';
       }).join('');
+    }
+
+    function goToSection(id) {
+      showView('view-landing');
+      setTimeout(() => {
+        const section = document.getElementById(id);
+        if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
     }
 
     function exploreFromSavedMoodboards() {
