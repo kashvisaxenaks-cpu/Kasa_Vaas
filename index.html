@@ -3790,6 +3790,79 @@
     }
 
 
+    async function generatePaletteFromImage(imageUrl) {
+      if (!imageUrl) return [];
+
+      try {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = imageUrl;
+
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+        });
+
+        const canvas = document.createElement('canvas');
+        const size = 80;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, size, size);
+
+        const pixels = ctx.getImageData(0, 0, size, size).data;
+        const buckets = new Map();
+
+        for (let i = 0; i < pixels.length; i += 16) {
+          const r = pixels[i];
+          const g = pixels[i + 1];
+          const b = pixels[i + 2];
+          const a = pixels[i + 3];
+
+          if (a < 180) continue;
+
+          const qr = Math.round(r / 32) * 32;
+          const qg = Math.round(g / 32) * 32;
+          const qb = Math.round(b / 32) * 32;
+          const key = [qr, qg, qb].map(v => Math.min(255, v)).join(',');
+
+          buckets.set(key, (buckets.get(key) || 0) + 1);
+        }
+
+        const colors = [...buckets.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .map(([key]) => key.split(',').map(Number))
+          .filter(([r, g, b]) => {
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            return max - min > 12 || (max > 45 && max < 235);
+          });
+
+        const chosen = [];
+        for (const rgb of colors) {
+          const farEnough = chosen.every(existing => {
+            const distance = Math.sqrt(
+              Math.pow(rgb[0] - existing[0], 2) +
+              Math.pow(rgb[1] - existing[1], 2) +
+              Math.pow(rgb[2] - existing[2], 2)
+            );
+            return distance > 45;
+          });
+
+          if (farEnough) chosen.push(rgb);
+          if (chosen.length === 5) break;
+        }
+
+        return chosen.map((rgb, index) => ({
+          name: `Palette ${index + 1}`,
+          hex: '#' + rgb.map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase()
+        }));
+      } catch (error) {
+        console.warn('Kasa Vaas palette extraction warning:', error);
+        return [];
+      }
+    }
+
     async function openInspiration(id) {
       const all = await getAllInspirations();
       const item = all.find(i => String(i.id) === String(id)) || all[0];
@@ -3804,15 +3877,22 @@
         `<span class="insp-material-tag">${escapeHtml(m)}</span>`
       ).join('');
 
-      document.getElementById('insp-palette').innerHTML = (item.palette || []).map(p => `
-        <div class="insp-color">
-          <div class="insp-color-block" style="background-color: ${escapeHtml(p.hex)}"></div>
-          <div class="insp-color-name">
-            ${escapeHtml(p.name)}
-            <span class="insp-color-hex">(${escapeHtml(p.hex)})</span>
+      let displayPalette = Array.isArray(item.palette) ? item.palette : [];
+      if (!displayPalette.length && item.media_type !== 'video') {
+        displayPalette = await generatePaletteFromImage(item.img);
+      }
+
+      document.getElementById('insp-palette').innerHTML = displayPalette.length
+        ? displayPalette.map(p => `
+          <div class="insp-color">
+            <div class="insp-color-block" style="background-color: ${escapeHtml(p.hex)}"></div>
+            <div class="insp-color-name">
+              ${escapeHtml(p.name)}
+              <span class="insp-color-hex">(${escapeHtml(p.hex)})</span>
+            </div>
           </div>
-        </div>
-      `).join('');
+        `).join('')
+        : '<span style="color:var(--text-muted);font-size:13px;">Color palette unavailable for this image.</span>';
 
       const similar = all.filter(i => String(i.id) !== String(id)).slice(0, 4);
       document.getElementById('insp-similar').innerHTML = similar.map(s => `
