@@ -3743,7 +3743,7 @@
       const all = await getAllInspirations();
       let items = all.filter(i => i.category === category);
       if (items.length === 0) items = all;
-      const displayItems = [...items, ...items, ...items].slice(0, 8);
+      const displayItems = items.slice(0, 8);
 
       grid.innerHTML = '';
 
