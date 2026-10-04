@@ -19,9 +19,11 @@
     // Keep the website's login state in sync after Google redirects and OTP sign-in.
     supabaseClient.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
-        const role = session.user.app_metadata?.role || session.user.user_metadata?.role || 'client';
+        const savedOAuthRole = localStorage.getItem('kasa_oauth_role');
+        const role = session.user.app_metadata?.role || session.user.user_metadata?.role || savedOAuthRole || 'client';
         localStorage.setItem('kasa_user_logged_in', 'true');
         localStorage.setItem('kasa_role', role);
+        localStorage.removeItem('kasa_oauth_role');
 
         if (event === 'PASSWORD_RECOVERY') {
           openAuth('login');
@@ -3451,21 +3453,32 @@
       const role = document.getElementById('role-designer')?.classList.contains('active') ? 'designer' : 'client';
 
       if (provider === 'Google') {
+        const redirectTo = new URL('./', window.location.href).href;
+        localStorage.setItem('kasa_oauth_role', role);
         showToast('Redirecting to Google…');
 
-        const { error } = await supabaseClient.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo: 'https://kashvisaxenaks-cpu.github.io/Kasa_Vaas/',
-            data: {
-              role
+        try {
+          const { data, error } = await supabaseClient.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+              redirectTo
             }
-          }
-        });
+          });
 
-        if (error) {
-          console.error('Kasa Vaas Google auth error:', error);
-          showToast(`⚠️ ${error.message || 'Google sign-in could not start.'}`);
+          if (error) {
+            localStorage.removeItem('kasa_oauth_role');
+            console.error('Kasa Vaas Google auth error:', error);
+            showToast(`⚠️ ${error.message || 'Google sign-in could not start.'}`);
+            return;
+          }
+
+          if (data?.url) {
+            window.location.assign(data.url);
+          }
+        } catch (error) {
+          localStorage.removeItem('kasa_oauth_role');
+          console.error('Kasa Vaas Google auth exception:', error);
+          showToast(`⚠️ ${error?.message || 'Google sign-in could not start.'}`);
         }
         return;
       }
